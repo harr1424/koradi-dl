@@ -117,8 +117,10 @@ func run() {
 				log.Fatal("Could not create directory as described above. Terminating.")
 			}
 
+			filePath := filepath.Join(downloadDir, "links")
+
 			// create a text file to write links found for language
-			file, err := os.Create("links")
+			file, err := os.Create(filePath)
 			if err != nil {
 				log.Println(err)
 				log.Fatal("Could not create file to store links. Terminating.")
