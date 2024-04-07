@@ -128,6 +128,7 @@ func run() {
 
 				// Check if the author URL contains the language code
 				if strings.Contains(author, "/"+get_lang(i)+"/") {
+					log.Println("Finding links for", author)
 					lang_zips = append(lang_zips, scrape_zips(author)...)
 				} else {
 					log.Printf("Skipping link %s. It does not match language %s", author, get_lang(i))
@@ -145,9 +146,6 @@ func run() {
 	log.Println("All links have been written")
 }
 
-/*
-Helper function to get language being iterated over using range based for loop on map
-*/
 func get_lang(num int) string {
 	switch num {
 	case 0:
@@ -167,10 +165,6 @@ func get_lang(num int) string {
 	return "invalid language"
 }
 
-/*
-Given a URL, will return a string array containing all links found on the page.
-These links are guaranteed to include authors, but may include other links as well.
-*/
 func scrape_authors(url string) []string {
 	resp, err := http.Get(url)
 	if err != nil {
@@ -204,9 +198,6 @@ func scrape_authors(url string) []string {
 	}
 }
 
-/*
-Given a URL, will return a string array of all links that point to a .zip download.
-*/
 func scrape_zips(url string) []string {
 	resp, err := http.Get(url)
 	if err != nil {
