@@ -1,18 +1,7 @@
-/*
-CREATED APRIL, 2023
-ALL RIGHTS RESERVED TO THE KORADI GROUP
-
-This program crawls the download page for each language on koradi.org searching for .zip files.
-These files will be downloaded to the local directory where this program was executed.
-Individual files will be grouped into directories specific to each language (en, es, fr, it, po, de).
-*/
-
 package main
 
 import (
-	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -25,10 +14,8 @@ import (
 	"golang.org/x/net/html"
 )
 
-var mu sync.Mutex
-
 func main() {
-	fmt.Printf("Welcome to the Koradi Archive Utility\n\n")
+	fmt.Printf("Welcome to the Koradi Link Utility\n\n")
 
 	// determine client platform and escalate privileges to create filesystem entries
 	if runtime.GOOS == "windows" {
@@ -83,9 +70,9 @@ func run() {
 		fmt.Println("Unable to detect working directory:", err)
 		return
 	}
-	fmt.Printf("Files will be downloaded to:  %s\n\n", wd)
+	fmt.Printf("Links will be written to:  %s\n\n", wd)
 
-	fmt.Printf("Searching for available downloads...\n\n")
+	fmt.Printf("Searching for links to .zip files...\n\n")
 
 	urls := [6]string{
 		"https://koradi.org/en/downloads/",
@@ -96,16 +83,6 @@ func run() {
 		"https://koradi.org/de/herunterladen/",
 	}
 
-	/*
-		Map containing int key and string array value. The string array will contain
-		html pages of each author for a specific language, identified by the key.
-
-		The helper function get_lang() will be used to convert the int key into a
-		language abbreviation when iterating over the map.
-
-		Keys must be integers for compatability with the range based for loop used to
-		iterate over this collection.
-	*/
 	var pages = map[int][]string{
 		0: {},
 		1: {},
@@ -115,26 +92,6 @@ func run() {
 		5: {},
 	}
 
-	/*
-		A slice of files that have been downloaded during this invocation of the program.
-		Used to notify the user which newly available files have been downloaded.
-	*/
-	var new_downloads []string
-
-	/*
-		For each page in pages (for each language), links to author pages will be scraped and
-		stored in string arrays (value of pages).
-
-		Subsequently these author pages will also be scraped for links pointing to .zip downloads.
-		These links will be stored in lang_zips.
-
-		A separate thread will be used to download .zip files belonging to each language.
-
-		Link names will be used to create filesystem entries, where all individual talks belonging to a
-		given language will be grouped in the same directory.
-
-		Filesystem entries will be checked for existence, and existing files will not be downloaded again.
-	*/
 	var lang_wg sync.WaitGroup
 	lang_wg.Add(len(urls))
 	for i, v := range urls { // for each language get author links
@@ -145,66 +102,47 @@ func run() {
 	}
 	lang_wg.Wait()
 
+	var pages_wg sync.WaitGroup
+	pages_wg.Add(len(pages))
 	for i, lang := range pages { // for each language, get .zip downloads from author links
-		var lang_zips []string
+		go func(i int, lang []string) {
+			defer pages_wg.Done()
+			var lang_zips []string
 
-		log.Printf("Checking %v %v links for .zip files...\n", len(pages[i]), get_lang(i))
+			log.Printf("Checking %v %v links for .zip files...\n", len(pages[i]), get_lang(i))
 
-		downloadDir := get_lang(i) // create a local dir for current language
-		if err := os.MkdirAll(downloadDir, 0755); err != nil {
-			log.Println(err)
-			log.Fatal("Could not create directory as described above. Terminating.")
-		}
-
-		for _, author := range lang { // for each author, get .zip downloads
-
-			// Check if the author URL contains the language code
-			if strings.Contains(author, "/"+get_lang(i)+"/") {
-				lang_zips = append(lang_zips, scrape_zips(author)...)
-			} else {
-				log.Printf("Skipping link %s. It does not match language %s", author, get_lang(i))
-			}
-		}
-
-		for _, talk := range lang_zips {
-			filename := filepath.Base(talk)
-			path_to_file := filepath.Join(downloadDir, filename)
-
-			// check if file already exists
-			mu.Lock()
-			if _, err := os.Stat(path_to_file); err == nil { // file exits
-				mu.Unlock()
-				continue
-			} else if errors.Is(err, os.ErrNotExist) { // file does not exist
-				file, err := os.Create(path_to_file)
-				if err != nil {
-					log.Println(err)
-					log.Fatal("Could not create file as described above. Terminating.")
-				}
-				if err := download(talk, file); err != nil {
-					log.Println(err)
-				} else {
-					log.Println("Downloaded", talk)
-					new_downloads = append(new_downloads, filename)
-				}
-			} else {
+			downloadDir := get_lang(i) + "_links" // create a local dir for current language
+			if err := os.MkdirAll(downloadDir, 0755); err != nil {
 				log.Println(err)
-				log.Printf("File %s was not downloaded, see error above", path_to_file)
+				log.Fatal("Could not create directory as described above. Terminating.")
 			}
-			mu.Unlock()
-		}
 
-	}
+			// create a text file to write links found for language
+			file, err := os.Create("links")
+			if err != nil {
+				log.Println(err)
+				log.Fatal("Could not create file to store links. Terminating.")
+			}
 
-	log.Println("All available files have been downloaded")
+			for _, author := range lang { // for each author, get .zip downloads
 
-	fmt.Println("New downloads include: ")
-	for _, name := range new_downloads {
-		fmt.Println(name)
+				// Check if the author URL contains the language code
+				if strings.Contains(author, "/"+get_lang(i)+"/") {
+					lang_zips = append(lang_zips, scrape_zips(author)...)
+				} else {
+					log.Printf("Skipping link %s. It does not match language %s", author, get_lang(i))
+				}
+			}
+
+			for _, talk := range lang_zips {
+				log.Println("Found", talk)
+				file.WriteString(talk + "\n")
+			}
+		}(i, lang)
 	}
-	if len(new_downloads) == 0 {
-		fmt.Println("None")
-	}
+	pages_wg.Wait()
+
+	log.Println("All links have been written")
 }
 
 /*
@@ -300,21 +238,4 @@ func scrape_zips(url string) []string {
 			}
 		}
 	}
-}
-
-/*
-Given a URL and local file object, copies the contents at URL to local file object.
-*/
-func download(url string, dest *os.File) error {
-	defer dest.Close()
-
-	resp, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	_, err = io.Copy(dest, resp.Body)
-
-	return err
 }
