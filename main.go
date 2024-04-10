@@ -1,12 +1,3 @@
-/*
-CREATED APRIL, 2023
-ALL RIGHTS RESERVED TO THE KORADI GROUP
-
-This program crawls the download page for each language on koradi.org searching for .zip files.
-These files will be downloaded to the local directory where this program was executed.
-Individual files will be grouped into directories specific to each language (en, es, fr, it, po, de).
-*/
-
 package main
 
 import (
@@ -24,8 +15,6 @@ import (
 
 	"golang.org/x/net/html"
 )
-
-var mu sync.Mutex
 
 func main() {
 	fmt.Printf("Welcome to the Koradi Archive Utility\n\n")
@@ -103,7 +92,7 @@ func run() {
 		The helper function get_lang() will be used to convert the int key into a
 		language abbreviation when iterating over the map.
 
-		Keys must be integers for compatability with the range based for loop used to
+		Keys must be integers for compatibility with the range based for loop used to
 		iterate over this collection.
 	*/
 	var pages = map[int][]string{
@@ -121,20 +110,6 @@ func run() {
 	*/
 	var new_downloads []string
 
-	/*
-		For each page in pages (for each language), links to author pages will be scraped and
-		stored in string arrays (value of pages).
-
-		Subsequently these author pages will also be scraped for links pointing to .zip downloads.
-		These links will be stored in lang_zips.
-
-		A separate thread will be used to download .zip files belonging to each language.
-
-		Link names will be used to create filesystem entries, where all individual talks belonging to a
-		given language will be grouped in the same directory.
-
-		Filesystem entries will be checked for existence, and existing files will not be downloaded again.
-	*/
 	var lang_wg sync.WaitGroup
 	lang_wg.Add(len(urls))
 	for i, v := range urls { // for each language get author links
@@ -145,56 +120,59 @@ func run() {
 	}
 	lang_wg.Wait()
 
+	var pages_wg sync.WaitGroup
+	pages_wg.Add(len(pages))
 	for i, lang := range pages { // for each language, get .zip downloads from author links
-		var lang_zips []string
+		go func(i int, lang []string) {
+			defer pages_wg.Done()
 
-		log.Printf("Checking %v %v links for .zip files...\n", len(pages[i]), get_lang(i))
+			var lang_zips []string
 
-		downloadDir := get_lang(i) // create a local dir for current language
-		if err := os.MkdirAll(downloadDir, 0755); err != nil {
-			log.Println(err)
-			log.Fatal("Could not create directory as described above. Terminating.")
-		}
+			log.Printf("Checking %v %v links for .zip files...\n", len(pages[i]), get_lang(i))
 
-		for _, author := range lang { // for each author, get .zip downloads
-
-			// Check if the author URL contains the language code
-			if strings.Contains(author, "/"+get_lang(i)+"/") {
-				lang_zips = append(lang_zips, scrape_zips(author)...)
-			} else {
-				log.Printf("Skipping link %s. It does not match language %s", author, get_lang(i))
-			}
-		}
-
-		for _, talk := range lang_zips {
-			filename := filepath.Base(talk)
-			path_to_file := filepath.Join(downloadDir, filename)
-
-			// check if file already exists
-			mu.Lock()
-			if _, err := os.Stat(path_to_file); err == nil { // file exits
-				mu.Unlock()
-				continue
-			} else if errors.Is(err, os.ErrNotExist) { // file does not exist
-				file, err := os.Create(path_to_file)
-				if err != nil {
-					log.Println(err)
-					log.Fatal("Could not create file as described above. Terminating.")
-				}
-				if err := download(talk, file); err != nil {
-					log.Println(err)
-				} else {
-					log.Println("Downloaded", talk)
-					new_downloads = append(new_downloads, filename)
-				}
-			} else {
+			downloadDir := get_lang(i) // create a local dir for current language
+			if err := os.MkdirAll(downloadDir, 0755); err != nil {
 				log.Println(err)
-				log.Printf("File %s was not downloaded, see error above", path_to_file)
+				log.Fatal("Could not create directory as described above. Terminating.")
 			}
-			mu.Unlock()
-		}
 
+			for _, author := range lang { // for each author, get .zip downloads
+
+				// Check if the author URL contains the language code
+				if strings.Contains(author, "/"+get_lang(i)+"/") {
+					log.Println("Found", author)
+					lang_zips = append(lang_zips, scrape_zips(author)...)
+				} else {
+					log.Printf("Skipping link %s. It does not match language %s", author, get_lang(i))
+				}
+			}
+
+			for _, talk := range lang_zips {
+				filename := filepath.Base(talk)
+				path_to_file := filepath.Join(downloadDir, filename)
+
+				if _, err := os.Stat(path_to_file); err == nil { // file exits
+					continue
+				} else if errors.Is(err, os.ErrNotExist) { // file does not exist
+					file, err := os.Create(path_to_file)
+					if err != nil {
+						log.Println(err)
+						log.Fatal("Could not create file as described above. Terminating.")
+					}
+					if err := download(talk, file); err != nil {
+						log.Println(err)
+					} else {
+						log.Println("Downloaded", talk)
+						new_downloads = append(new_downloads, filename)
+					}
+				} else {
+					log.Println(err)
+					log.Printf("File %s was not downloaded, see error above", path_to_file)
+				}
+			}
+		}(i, lang)
 	}
+	pages_wg.Wait()
 
 	log.Println("All available files have been downloaded")
 
