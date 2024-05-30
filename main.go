@@ -96,12 +96,12 @@ func run() {
 		iterate over this collection.
 	*/
 	var pages = map[int][]string{
-		0: {},
-		1: {},
-		2: {},
-		3: {},
-		4: {},
-		5: {},
+		0: {}, // en
+		1: {}, // es
+		2: {}, // fr
+		3: {}, // po
+		4: {}, // it
+		5: {}, // de
 	}
 
 	/*
@@ -147,7 +147,9 @@ func run() {
 				}
 			}
 
-			for _, talk := range lang_zips {
+			unique := removeDuplicates(lang_zips)
+
+			for _, talk := range unique {
 				filename := filepath.Base(talk)
 				path_to_file := filepath.Join(downloadDir, filename)
 
@@ -157,7 +159,7 @@ func run() {
 					file, err := os.Create(path_to_file)
 					if err != nil {
 						log.Println(err)
-						log.Fatal("Could not create file as described above. Terminating.")
+						log.Fatal("Fatal Error attempting to create file:", path_to_file)
 					}
 					if err := download(talk, file); err != nil {
 						log.Println(err)
@@ -166,8 +168,7 @@ func run() {
 						new_downloads = append(new_downloads, filename)
 					}
 				} else {
-					log.Println(err)
-					log.Printf("File %s was not downloaded, see error above", path_to_file)
+					log.Println("Error downloading", talk)
 				}
 			}
 		}(i, lang)
@@ -185,9 +186,6 @@ func run() {
 	}
 }
 
-/*
-Helper function to get language being iterated over using range based for loop on map
-*/
 func get_lang(num int) string {
 	switch num {
 	case 0:
@@ -207,10 +205,20 @@ func get_lang(num int) string {
 	return "invalid language"
 }
 
-/*
-Given a URL, will return a string array containing all links found on the page.
-These links are guaranteed to include authors, but may include other links as well.
-*/
+func removeDuplicates(input []string) []string {
+	encountered := map[string]bool{}
+	result := []string{}
+
+	for _, value := range input {
+		if !encountered[value] {
+			encountered[value] = true
+			result = append(result, value)
+		}
+	}
+
+	return result
+}
+
 func scrape_authors(url string) []string {
 	resp, err := http.Get(url)
 	if err != nil {
@@ -244,9 +252,6 @@ func scrape_authors(url string) []string {
 	}
 }
 
-/*
-Given a URL, will return a string array of all links that point to a .zip download.
-*/
 func scrape_zips(url string) []string {
 	resp, err := http.Get(url)
 	if err != nil {
@@ -280,9 +285,6 @@ func scrape_zips(url string) []string {
 	}
 }
 
-/*
-Given a URL and local file object, copies the contents at URL to local file object.
-*/
 func download(url string, dest *os.File) error {
 	defer dest.Close()
 
