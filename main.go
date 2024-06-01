@@ -13,63 +13,101 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/muesli/termenv"
 	"golang.org/x/net/html"
 )
 
 func main() {
-	fmt.Printf("Welcome to the Koradi Archive Utility\n\n")
+	output := termenv.NewOutput(os.Stdout)
+	msg := output.String("Welcome to the Koradi Archive Utility\n").
+		Bold().
+		Underline()
+	fmt.Println(msg)
 
-	// determine client platform and escalate privileges to create filesystem entries
-	if runtime.GOOS == "windows" {
-		out, err := exec.Command("net", "session").Output()
-		if err != nil {
-			log.Fatal("Unable to check for sufficient privileges. Terminating.")
-		}
-
-		if string(out) == "" {
-			fmt.Println("This program requires elevated privileges in order to create directories and files on your computer. You will be prompted to enter your password.")
-			cmd := exec.Command("runas", "/user:Administrator", os.Args[0])
-			cmd.Stdin = os.Stdin
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			err := cmd.Run()
-			if err != nil {
-				log.Fatal("Unable to run as admin. Terminating.", err)
-			}
-		}
-	} else {
-		if os.Geteuid() != 0 {
-			fmt.Println("This program requires elevated privileges in order to create directories and files on your computer. You will be prompted to enter your password:")
-			cmd := exec.Command("sudo", os.Args[0])
-			cmd.Stdin = os.Stdin
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			err := cmd.Run()
-			if err != nil {
-				log.Fatal("Unable to run as root. Terminating.", err)
-			}
-			os.Exit(0)
-		}
-	}
+	ensureElevatedPrivileges()
 
 	run()
+
+	//TODO: On Windows use getLine() or something to keep window open
+}
+
+func ensureElevatedPrivileges() {
+	if runtime.GOOS == "windows" {
+		checkWindowsPrivileges()
+	} else {
+		checkUnixPrivileges()
+	}
+}
+
+func checkWindowsPrivileges() {
+	out, err := exec.Command("net", "session").Output()
+	if err != nil {
+		log.Fatal("Unable to check for sufficient privileges. Terminating: ", err)
+	}
+
+	if string(out) == "" {
+		fmt.Println("This program requires elevated privileges in order to create directories and files on your computer. You will be prompted to enter your password.")
+		cmd := exec.Command("powershell", "Start-Process", "cmd.exe", "/c", os.Args[0], "-Verb", "runAs")
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		err := cmd.Run()
+		if err != nil {
+			log.Fatal("Unable to run as admin. Terminating: ", err)
+		}
+		os.Exit(0)
+	}
+}
+
+func checkUnixPrivileges() {
+	if os.Geteuid() != 0 {
+		fmt.Println("This program requires elevated privileges in order to create directories and files on your computer. You will be prompted to enter your password:")
+		cmd := exec.Command("sudo", os.Args[0])
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		err := cmd.Run()
+		if err != nil {
+			log.Fatal("Unable to run as root. Terminating: ", err)
+		}
+		os.Exit(0)
+	}
 }
 
 func run() {
+	output := termenv.NewOutput(os.Stdout)
+	var new_downloads []string
+	var errors_ocurred []string
+
 	// get client working directory and output so user knows where to locate downloaded files
 	exPath, err := os.Executable()
 	if err != nil {
-		fmt.Println("Unable to detect working directory:", err)
+		msg := output.String("Unable to detect working directory:").
+			Bold().
+			Underline().
+			Foreground(output.Color("1"))
+		fmt.Println(msg)
+
 		return
 	}
 	exDir := filepath.Dir(exPath)
 	if err := os.Chdir(exDir); err != nil {
-		fmt.Println("Unable to change working directory:", err)
+		msg := output.String("Unable to change working directory: %v", err.Error()).
+			Bold().
+			Underline().
+			Foreground(output.Color("1"))
+		fmt.Println(msg)
+
 		return
 	}
 	wd, err := os.Getwd()
 	if err != nil {
-		fmt.Println("Unable to detect working directory:", err)
+		msg := output.String("Unable to detect working directory: %v", err.Error()).
+			Bold().
+			Underline().
+			Foreground(output.Color("1"))
+		fmt.Println(msg)
+
 		return
 	}
 	fmt.Printf("Files will be downloaded to:  %s\n\n", wd)
@@ -77,12 +115,12 @@ func run() {
 	fmt.Printf("Searching for available downloads...\n\n")
 
 	urls := [6]string{
-		"https://koradi.org/en/downloads/",
-		"https://koradi.org/es/descargas/",
-		"https://koradi.org/fr/telechargements/",
-		"https://koradi.org/po/downloads/",
-		"https://koradi.org/it/download/",
-		"https://koradi.org/de/herunterladen/",
+		// "https://koradi.org/en/downloads/",
+		// "https://koradi.org/es/descargas/",
+		// "https://koradi.org/fr/telechargements/",
+		// "https://koradi.org/po/downloads/",
+		// "https://koradi.org/it/download/",
+		// "https://koradi.org/de/herunterladen/",
 	}
 
 	/*
@@ -104,18 +142,22 @@ func run() {
 		5: {}, // de
 	}
 
-	/*
-		A slice of files that have been downloaded during this invocation of the program.
-		Used to notify the user which newly available files have been downloaded.
-	*/
-	var new_downloads []string
-
 	var lang_wg sync.WaitGroup
 	lang_wg.Add(len(urls))
-	for i, v := range urls { // for each language get author links
+	for i, v := range urls {
 		go func(i int, v string) {
 			defer lang_wg.Done()
-			pages[i] = scrape_authors(v)
+			links, err := scrape_authors(v)
+			if err != nil {
+				msg := output.String(fmt.Sprintf("Error scraping authors from %s: %v", v, err)).
+					Bold().
+					Underline().
+					Foreground(output.Color("1"))
+				fmt.Println(msg)
+				errors_ocurred = append(errors_ocurred, err.Error())
+				return
+			}
+			pages[i] = links
 		}(i, v)
 	}
 	lang_wg.Wait()
@@ -132,16 +174,29 @@ func run() {
 
 			downloadDir := get_lang(i) // create a local dir for current language
 			if err := os.MkdirAll(downloadDir, 0755); err != nil {
-				log.Println(err)
-				log.Fatal("Could not create directory as described above. Terminating.")
+				msg := output.String("Terminating because a directory could not be created: %v", err.Error()).
+					Bold().
+					Underline().
+					Foreground(output.Color("1"))
+				fmt.Println(msg)
+
+				return
 			}
 
-			for _, author := range lang { // for each author, get .zip downloads
-
-				// Check if the author URL contains the language code
+			for _, author := range lang {
 				if strings.Contains(author, "/"+get_lang(i)+"/") {
 					log.Println("Found", author)
-					lang_zips = append(lang_zips, scrape_zips(author)...)
+					zips, err := scrape_zips(author)
+					if err != nil {
+						msg := output.String(fmt.Sprintf("Error scraping zips from %s: %v", author, err)).
+							Bold().
+							Underline().
+							Foreground(output.Color("1"))
+						fmt.Println(msg)
+						errors_ocurred = append(errors_ocurred, err.Error())
+						continue
+					}
+					lang_zips = append(lang_zips, zips...)
 				} else {
 					log.Printf("Skipping link %s. It does not match language %s", author, get_lang(i))
 				}
@@ -158,31 +213,73 @@ func run() {
 				} else if errors.Is(err, os.ErrNotExist) { // file does not exist
 					file, err := os.Create(path_to_file)
 					if err != nil {
-						log.Println(err)
-						log.Fatal("Fatal Error attempting to create file:", path_to_file)
+						msg := output.String("Terminating because the file %s could not be created: %v", path_to_file, err.Error()).
+							Bold().
+							Underline().
+							Foreground(output.Color("1"))
+						fmt.Println(msg)
+
+						return
 					}
 					if err := download(talk, file); err != nil {
-						log.Println(err)
+						msg := output.String(err.Error()).
+							Bold().
+							Underline().
+							Foreground(output.Color("1"))
+						fmt.Println(msg)
+						errors_ocurred = append(errors_ocurred, err.Error())
 					} else {
-						log.Println("Downloaded", talk)
+						msg := output.String("Downloaded: %s", talk).
+							Foreground(output.Color("34"))
+						fmt.Println(msg)
 						new_downloads = append(new_downloads, filename)
 					}
 				} else {
-					log.Println("Error downloading", talk)
+					msg := output.String("Error downloading %s: %v", path_to_file, err.Error()).
+						Bold().
+						Underline().
+						Foreground(output.Color("1"))
+					fmt.Println(msg)
+					errors_ocurred = append(errors_ocurred, "Error downloading %s: %v", talk, err.Error())
 				}
 			}
 		}(i, lang)
 	}
 	pages_wg.Wait()
 
-	log.Println("All available files have been downloaded")
+	msg := output.String("All available files have been downloaded.\nNew downloads include:").
+		Bold().
+		Underline().
+		Foreground(output.Color("34"))
+	fmt.Println(msg)
 
-	fmt.Println("New downloads include: ")
 	for _, name := range new_downloads {
 		fmt.Println(name)
+
+		msg := output.String(name).
+			Foreground(output.Color("34"))
+		fmt.Println(msg)
 	}
 	if len(new_downloads) == 0 {
-		fmt.Println("None")
+		msg := output.String("None").
+			Foreground(output.Color("34"))
+		fmt.Println(msg)
+	}
+
+	if len(errors_ocurred) > 0 {
+		msg = output.String("\nThe following errors ocurred:").
+			Bold().
+			Underline().
+			Foreground(output.Color("1"))
+		fmt.Println(msg)
+
+		for _, name := range new_downloads {
+			fmt.Println(name)
+
+			msg := output.String(name).
+				Foreground(output.Color("1"))
+			fmt.Println(msg)
+		}
 	}
 }
 
@@ -219,12 +316,10 @@ func removeDuplicates(input []string) []string {
 	return result
 }
 
-func scrape_authors(url string) []string {
+func scrape_authors(url string) ([]string, error) {
 	resp, err := http.Get(url)
 	if err != nil {
-		log.Printf("WARNING: Files at url %s will not be downloaded due to the following error:\n", url)
-		log.Println(err)
-		return nil
+		return nil, fmt.Errorf("unable to fetch URL %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 
@@ -237,7 +332,10 @@ func scrape_authors(url string) []string {
 
 		switch {
 		case tt == html.ErrorToken:
-			return links
+			if z.Err() == io.EOF {
+				return links, nil
+			}
+			return nil, z.Err()
 		case tt == html.StartTagToken:
 			t := z.Token()
 
@@ -252,12 +350,10 @@ func scrape_authors(url string) []string {
 	}
 }
 
-func scrape_zips(url string) []string {
+func scrape_zips(url string) ([]string, error) {
 	resp, err := http.Get(url)
 	if err != nil {
-		log.Printf("WARNING: File at %s will not be downloaded due to the following error:\n", url)
-		log.Println(err)
-		return nil
+		return nil, fmt.Errorf("unable to fetch URL %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 
@@ -270,7 +366,10 @@ func scrape_zips(url string) []string {
 
 		switch {
 		case tt == html.ErrorToken:
-			return links
+			if z.Err() == io.EOF {
+				return links, nil
+			}
+			return nil, z.Err()
 		case tt == html.StartTagToken:
 			t := z.Token()
 
