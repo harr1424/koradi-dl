@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -28,7 +29,8 @@ func main() {
 
 	run()
 
-	//TODO: On Windows use getLine() or something to keep window open
+	fmt.Println("Press any key to exit...")
+	bufio.NewReader(os.Stdin).ReadRune()
 }
 
 func ensureElevatedPrivileges() {
@@ -78,6 +80,7 @@ func run() {
 	output := termenv.NewOutput(os.Stdout)
 	var new_downloads []string
 	var errors_ocurred []string
+	var mu sync.Mutex
 
 	// get client working directory and output so user knows where to locate downloaded files
 	exPath, err := os.Executable()
@@ -92,7 +95,7 @@ func run() {
 	}
 	exDir := filepath.Dir(exPath)
 	if err := os.Chdir(exDir); err != nil {
-		msg := output.String("Unable to change working directory: %v", err.Error()).
+		msg := output.String("Unable to change working directory:", err.Error()).
 			Bold().
 			Underline().
 			Foreground(output.Color("1"))
@@ -102,7 +105,7 @@ func run() {
 	}
 	wd, err := os.Getwd()
 	if err != nil {
-		msg := output.String("Unable to detect working directory: %v", err.Error()).
+		msg := output.String("Unable to detect working directory:", err.Error()).
 			Bold().
 			Underline().
 			Foreground(output.Color("1"))
@@ -115,12 +118,12 @@ func run() {
 	fmt.Printf("Searching for available downloads...\n\n")
 
 	urls := [6]string{
-		// "https://koradi.org/en/downloads/",
-		// "https://koradi.org/es/descargas/",
-		// "https://koradi.org/fr/telechargements/",
-		// "https://koradi.org/po/downloads/",
-		// "https://koradi.org/it/download/",
-		// "https://koradi.org/de/herunterladen/",
+		"https://koradi.org/en/downloads/",
+		"https://koradi.org/es/descargas/",
+		"https://koradi.org/fr/telechargements/",
+		"https://koradi.org/po/downloads/",
+		"https://koradi.org/it/download/",
+		"https://koradi.org/de/herunterladen/",
 	}
 
 	/*
@@ -150,14 +153,16 @@ func run() {
 			links, err := scrape_authors(v)
 			if err != nil {
 				msg := output.String(fmt.Sprintf("Error scraping authors from %s: %v", v, err)).
-					Bold().
-					Underline().
 					Foreground(output.Color("1"))
 				fmt.Println(msg)
+				mu.Lock()
 				errors_ocurred = append(errors_ocurred, err.Error())
+				mu.Unlock()
 				return
 			}
+			mu.Lock()
 			pages[i] = links
+			mu.Unlock()
 		}(i, v)
 	}
 	lang_wg.Wait()
@@ -174,9 +179,7 @@ func run() {
 
 			downloadDir := get_lang(i) // create a local dir for current language
 			if err := os.MkdirAll(downloadDir, 0755); err != nil {
-				msg := output.String("Terminating because a directory could not be created: %v", err.Error()).
-					Bold().
-					Underline().
+				msg := output.String("Terminating because a directory could not be created:", err.Error()).
 					Foreground(output.Color("1"))
 				fmt.Println(msg)
 
@@ -189,11 +192,11 @@ func run() {
 					zips, err := scrape_zips(author)
 					if err != nil {
 						msg := output.String(fmt.Sprintf("Error scraping zips from %s: %v", author, err)).
-							Bold().
-							Underline().
 							Foreground(output.Color("1"))
 						fmt.Println(msg)
+						mu.Lock()
 						errors_ocurred = append(errors_ocurred, err.Error())
+						mu.Unlock()
 						continue
 					}
 					lang_zips = append(lang_zips, zips...)
@@ -213,9 +216,7 @@ func run() {
 				} else if errors.Is(err, os.ErrNotExist) { // file does not exist
 					file, err := os.Create(path_to_file)
 					if err != nil {
-						msg := output.String("Terminating because the file %s could not be created: %v", path_to_file, err.Error()).
-							Bold().
-							Underline().
+						msg := output.String(fmt.Sprintf("Terminating because the file %s could not be created: %v", path_to_file, err.Error())).
 							Foreground(output.Color("1"))
 						fmt.Println(msg)
 
@@ -223,47 +224,46 @@ func run() {
 					}
 					if err := download(talk, file); err != nil {
 						msg := output.String(err.Error()).
-							Bold().
-							Underline().
 							Foreground(output.Color("1"))
 						fmt.Println(msg)
+						mu.Lock()
 						errors_ocurred = append(errors_ocurred, err.Error())
+						mu.Unlock()
 					} else {
-						msg := output.String("Downloaded: %s", talk).
+						msg := output.String("Downloaded:", talk).
 							Foreground(output.Color("34"))
 						fmt.Println(msg)
+						mu.Lock()
 						new_downloads = append(new_downloads, filename)
+						mu.Unlock()
 					}
 				} else {
-					msg := output.String("Error downloading %s: %v", path_to_file, err.Error()).
-						Bold().
-						Underline().
+					msg := output.String("Error downloading", path_to_file, err.Error()).
 						Foreground(output.Color("1"))
 					fmt.Println(msg)
-					errors_ocurred = append(errors_ocurred, "Error downloading %s: %v", talk, err.Error())
+					mu.Lock()
+					errors_ocurred = append(errors_ocurred, "Error downloading", talk, err.Error())
+					mu.Unlock()
 				}
 			}
+
 		}(i, lang)
 	}
 	pages_wg.Wait()
 
-	msg := output.String("All available files have been downloaded.\nNew downloads include:").
+	msg := output.String("All available files have been downloaded. New downloads include:").
 		Bold().
 		Underline().
 		Foreground(output.Color("34"))
 	fmt.Println(msg)
 
 	for _, name := range new_downloads {
-		fmt.Println(name)
-
 		msg := output.String(name).
 			Foreground(output.Color("34"))
 		fmt.Println(msg)
 	}
 	if len(new_downloads) == 0 {
-		msg := output.String("None").
-			Foreground(output.Color("34"))
-		fmt.Println(msg)
+		fmt.Println("None")
 	}
 
 	if len(errors_ocurred) > 0 {
@@ -273,10 +273,8 @@ func run() {
 			Foreground(output.Color("1"))
 		fmt.Println(msg)
 
-		for _, name := range new_downloads {
-			fmt.Println(name)
-
-			msg := output.String(name).
+		for _, e := range errors_ocurred {
+			msg := output.String(e).
 				Foreground(output.Color("1"))
 			fmt.Println(msg)
 		}
@@ -358,25 +356,24 @@ func scrape_zips(url string) ([]string, error) {
 	defer resp.Body.Close()
 
 	z := html.NewTokenizer(resp.Body)
-
 	var links []string
 
 	for {
 		tt := z.Next()
-
-		switch {
-		case tt == html.ErrorToken:
+		switch tt {
+		case html.ErrorToken:
 			if z.Err() == io.EOF {
 				return links, nil
 			}
 			return nil, z.Err()
-		case tt == html.StartTagToken:
+		case html.StartTagToken, html.SelfClosingTagToken:
 			t := z.Token()
-
 			if t.Data == "a" {
 				for _, a := range t.Attr {
-					if a.Key == "href" && strings.HasSuffix(a.Val, ".zip") {
-						links = append(links, a.Val)
+					if a.Key == "href" {
+						if strings.HasSuffix(a.Val, ".zip") || strings.HasSuffix(a.Val, "-zip") {
+							links = append(links, a.Val)
+						}
 					}
 				}
 			}
