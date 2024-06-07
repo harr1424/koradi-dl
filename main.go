@@ -222,7 +222,7 @@ func run() {
 						return
 					}
 					if err := download(talk, file); err != nil {
-						msg := output.String(err.Error()).
+						msg := output.String(fmt.Sprintf("%s %d/%d: Error downloading %s %v", get_lang(i), j, totalFiles, path_to_file, err.Error())).
 							Foreground(output.Color("1"))
 						fmt.Println(msg)
 						mu.Lock()
@@ -253,13 +253,11 @@ func run() {
 
 	msg := output.String("All available files have been downloaded. New downloads include:").
 		Bold().
-		Underline().
-		Foreground(output.Color("34"))
+		Underline()
 	fmt.Println(msg)
 
 	for _, name := range new_downloads {
-		msg := output.String(name).
-			Foreground(output.Color("34"))
+		msg := output.String(name)
 		fmt.Println(msg)
 	}
 	if len(new_downloads) == 0 {
