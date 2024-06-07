@@ -38,7 +38,7 @@ func main() {
 		p.Quit()
 	}()
 
-	if err := p.Start(); err != nil {
+	if _, err := p.Run(); err != nil {
 		log.Fatal(err)
 	}
 
@@ -208,7 +208,7 @@ func run(output *termenv.Output, p *tea.Program) {
 				filename := filepath.Base(talk)
 				path_to_file := filepath.Join(downloadDir, filename)
 
-				if _, err := os.Stat(path_to_file); err == nil {
+				if _, err := os.Stat(path_to_file); err == nil { // file exists
 					p.Send(progressMsg{Index: i, Value: 1, Total: totalTasks})
 					continue
 				} else if errors.Is(err, os.ErrNotExist) {

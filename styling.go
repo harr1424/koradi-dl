@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/charmbracelet/bubbles/progress"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/muesli/termenv"
 )
@@ -23,7 +22,6 @@ type model struct {
 	done         bool
 	mu           sync.Mutex
 	progressBars []progress.Model
-	viewport     viewport.Model
 }
 
 type logMsg LogMessage
@@ -42,16 +40,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	defer m.mu.Unlock()
 
 	switch msg := msg.(type) {
-	case tea.MouseMsg:
-		switch msg.Type {
-		case tea.MouseWheelUp:
-			m.viewport.LineUp(1)
-		case tea.MouseWheelDown:
-			m.viewport.LineDown(1)
-		}
 	case logMsg:
 		m.logs = append(m.logs, LogMessage{Content: msg.Content})
-		m.viewport.SetContent(m.renderLogs()) // Update viewport content
 	case progressMsg:
 		m.progress[msg.Index] += msg.Value
 		if msg.Total > 0 {
@@ -80,14 +70,10 @@ func (m *model) View() string {
 
 	var sb strings.Builder
 
-	sb.WriteString(m.viewport.View() + "\n")
+	sb.WriteString(m.renderLogs() + "\n")
 
 	for i := range m.progress {
-		percentage := 0
-		if m.totalTasks[i] > 0 {
-			percentage = int(float64(m.progress[i]) / float64(m.totalTasks[i]) * 100)
-		}
-		sb.WriteString(fmt.Sprintf("Language %s: %s %d%%\n", m.languages[i], m.progressBars[i].View(), percentage))
+		sb.WriteString(fmt.Sprintf("Language %s: %s\n", m.languages[i], m.progressBars[i].View()))
 	}
 
 	return sb.String()
@@ -103,16 +89,11 @@ func newModel() *model {
 		totalTasks[i] = 1
 	}
 
-	vp := viewport.New(80, 10)
-	vp.YPosition = 0
-	vp.SetContent("")
-
 	return &model{
 		logs:         []LogMessage{},
 		progress:     make([]int, len(languages)),
 		totalTasks:   totalTasks,
 		languages:    languages,
 		progressBars: progressBars,
-		viewport:     vp,
 	}
 }
