@@ -4,9 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +13,6 @@ import (
 	"sync"
 
 	"github.com/muesli/termenv"
-	"golang.org/x/net/html"
 )
 
 func main() {
@@ -206,12 +203,14 @@ func run() {
 			}
 
 			unique := removeDuplicates(lang_zips)
+			totalFiles := len(unique)
 
-			for _, talk := range unique {
+			for j, talk := range unique {
 				filename := filepath.Base(talk)
 				path_to_file := filepath.Join(downloadDir, filename)
 
 				if _, err := os.Stat(path_to_file); err == nil { // file exits
+					fmt.Printf("%s %d/%d: File %s has been downloaded previously.", get_lang(i), j, totalFiles, talk)
 					continue
 				} else if errors.Is(err, os.ErrNotExist) { // file does not exist
 					file, err := os.Create(path_to_file)
@@ -230,7 +229,7 @@ func run() {
 						errors_ocurred = append(errors_ocurred, err.Error())
 						mu.Unlock()
 					} else {
-						msg := output.String("Downloaded:", talk).
+						msg := output.String(fmt.Sprintf("%s %d/%d: Downloaded: %s", get_lang(i), j, totalFiles, talk)).
 							Foreground(output.Color("34"))
 						fmt.Println(msg)
 						mu.Lock()
@@ -238,13 +237,14 @@ func run() {
 						mu.Unlock()
 					}
 				} else {
-					msg := output.String("Error downloading", path_to_file, err.Error()).
+					msg := output.String(fmt.Sprintf("%s %d/%d: Error downloading %s %v", get_lang(i), j, totalFiles, path_to_file, err.Error())).
 						Foreground(output.Color("1"))
 					fmt.Println(msg)
 					mu.Lock()
 					errors_ocurred = append(errors_ocurred, "Error downloading", talk, err.Error())
 					mu.Unlock()
 				}
+
 			}
 
 		}(i, lang)
@@ -279,118 +279,4 @@ func run() {
 			fmt.Println(msg)
 		}
 	}
-}
-
-func get_lang(num int) string {
-	switch num {
-	case 0:
-		return "en"
-	case 1:
-		return "es"
-	case 2:
-		return "fr"
-	case 3:
-		return "po"
-	case 4:
-		return "it"
-	case 5:
-		return "de"
-	}
-
-	return "invalid language"
-}
-
-func removeDuplicates(input []string) []string {
-	encountered := map[string]bool{}
-	result := []string{}
-
-	for _, value := range input {
-		if !encountered[value] {
-			encountered[value] = true
-			result = append(result, value)
-		}
-	}
-
-	return result
-}
-
-func scrape_authors(url string) ([]string, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch URL %s: %w", url, err)
-	}
-	defer resp.Body.Close()
-
-	z := html.NewTokenizer(resp.Body)
-
-	var links []string
-
-	for {
-		tt := z.Next()
-
-		switch {
-		case tt == html.ErrorToken:
-			if z.Err() == io.EOF {
-				return links, nil
-			}
-			return nil, z.Err()
-		case tt == html.StartTagToken:
-			t := z.Token()
-
-			if t.Data == "a" {
-				for _, a := range t.Attr {
-					if a.Key == "href" && strings.HasSuffix(a.Val, "/") {
-						links = append(links, a.Val)
-					}
-				}
-			}
-		}
-	}
-}
-
-func scrape_zips(url string) ([]string, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("unable to fetch URL %s: %w", url, err)
-	}
-	defer resp.Body.Close()
-
-	z := html.NewTokenizer(resp.Body)
-	var links []string
-
-	for {
-		tt := z.Next()
-		switch tt {
-		case html.ErrorToken:
-			if z.Err() == io.EOF {
-				return links, nil
-			}
-			return nil, z.Err()
-		case html.StartTagToken, html.SelfClosingTagToken:
-			t := z.Token()
-			if t.Data == "a" {
-				for _, a := range t.Attr {
-					if a.Key == "href" {
-						if strings.HasSuffix(a.Val, ".zip") || strings.HasSuffix(a.Val, "-zip") {
-							links = append(links, a.Val)
-						}
-					}
-				}
-			}
-		}
-	}
-}
-
-func download(url string, dest *os.File) error {
-	defer dest.Close()
-
-	resp, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	_, err = io.Copy(dest, resp.Body)
-
-	return err
 }
