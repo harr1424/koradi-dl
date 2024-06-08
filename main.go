@@ -23,6 +23,7 @@ func main() {
 	fmt.Println(msg)
 
 	ensureElevatedPrivileges()
+	confirmWorkingDir()
 
 	run()
 
@@ -70,6 +71,37 @@ func checkUnixPrivileges() {
 			log.Fatal("Unable to run as root. Terminating: ", err)
 		}
 		os.Exit(0)
+	}
+}
+
+func confirmWorkingDir() {
+	exPath, err := os.Executable()
+	if err != nil {
+		log.Fatal("Unable to detect working directory")
+	}
+	exDir := filepath.Dir(exPath)
+	if err := os.Chdir(exDir); err != nil {
+		log.Fatal("Unable to change working directory", err)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		log.Fatal("Unable to detect working directory:", err)
+	}
+	fmt.Printf("Files will be downloaded to:  %s\n", wd)
+	fmt.Println("Please confirm that you have 100GB free at this location by entering 'Y' to continue or any other key to quit:")
+
+	reader := bufio.NewReader(os.Stdin)
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		log.Fatal("Error reading input:", err)
+	}
+
+	input = strings.TrimSpace(input)
+
+	if strings.ToUpper(input) == "Y" {
+		return
+	} else {
+		log.Fatal("User exited program")
 	}
 }
 
