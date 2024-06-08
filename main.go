@@ -22,7 +22,7 @@ func main() {
 		Underline()
 	fmt.Println(msg)
 
-	ensureElevatedPrivileges()
+	//ensureElevatedPrivileges()
 	confirmWorkingDir()
 
 	run()
@@ -242,10 +242,19 @@ func run() {
 				path_to_file := filepath.Join(downloadDir, filename)
 
 				if _, err := os.Stat(path_to_file); err == nil { // file exits
-					fmt.Printf("%s %d/%d: File %s has been downloaded previously.", get_lang(i), j, totalFiles, talk)
+					fmt.Printf("%s %d/%d: File %s has been downloaded previously.\n", get_lang(i), j, totalFiles, talk)
 					continue
 				} else if errors.Is(err, os.ErrNotExist) { // file does not exist
-					file, err := os.Create(path_to_file)
+
+					err := os.MkdirAll(filepath.Dir(path_to_file), 0755) // create dirdctory to hold file
+					if err != nil {
+						msg := output.String(fmt.Sprintf("Terminating because the directory %s could not be created: %v", path_to_file, err)).
+							Foreground(output.Color("1"))
+						fmt.Println(msg)
+
+						return
+					}
+					file, err := os.Create(path_to_file) // create file to download to
 					if err != nil {
 						msg := output.String(fmt.Sprintf("Terminating because the file %s could not be created: %v", path_to_file, err.Error())).
 							Foreground(output.Color("1"))
@@ -253,14 +262,15 @@ func run() {
 
 						return
 					}
-					if err := download(talk, file); err != nil {
+					if err := download(talk, file); err != nil { // donwload had errors
 						msg := output.String(fmt.Sprintf("%s %d/%d: Error downloading %s %v", get_lang(i), j, totalFiles, path_to_file, err.Error())).
 							Foreground(output.Color("1"))
 						fmt.Println(msg)
 						mu.Lock()
 						errors_ocurred = append(errors_ocurred, err.Error())
 						mu.Unlock()
-					} else {
+
+					} else { // download succeeded
 						msg := output.String(fmt.Sprintf("%s %d/%d: Downloaded: %s", get_lang(i), j, totalFiles, talk)).
 							Foreground(output.Color("34"))
 						fmt.Println(msg)
@@ -268,7 +278,7 @@ func run() {
 						new_downloads = append(new_downloads, filename)
 						mu.Unlock()
 					}
-				} else {
+				} else { // file does not exist and some other error ocurred
 					msg := output.String(fmt.Sprintf("%s %d/%d: Error downloading %s %v", get_lang(i), j, totalFiles, path_to_file, err.Error())).
 						Foreground(output.Color("1"))
 					fmt.Println(msg)
