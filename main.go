@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 
@@ -22,56 +20,12 @@ func main() {
 		Underline()
 	fmt.Println(msg)
 
-	//ensureElevatedPrivileges()
 	confirmWorkingDir()
 
 	run()
 
 	fmt.Println("Press any key to exit...")
 	bufio.NewReader(os.Stdin).ReadRune()
-}
-
-func ensureElevatedPrivileges() {
-	if runtime.GOOS == "windows" {
-		checkWindowsPrivileges()
-	} else {
-		checkUnixPrivileges()
-	}
-}
-
-func checkWindowsPrivileges() {
-	out, err := exec.Command("net", "session").Output()
-	if err != nil {
-		log.Fatal("Unable to check for sufficient privileges. Terminating: ", err)
-	}
-
-	if string(out) == "" {
-		fmt.Println("This program requires elevated privileges in order to create directories and files on your computer. You will be prompted to enter your password.")
-		cmd := exec.Command("powershell", "Start-Process", "cmd.exe", "/c", os.Args[0], "-Verb", "runAs")
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		err := cmd.Run()
-		if err != nil {
-			log.Fatal("Unable to run as admin. Terminating: ", err)
-		}
-		os.Exit(0)
-	}
-}
-
-func checkUnixPrivileges() {
-	if os.Geteuid() != 0 {
-		fmt.Println("This program requires elevated privileges in order to create directories and files on your computer. You will be prompted to enter your password:")
-		cmd := exec.Command("sudo", os.Args[0])
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		err := cmd.Run()
-		if err != nil {
-			log.Fatal("Unable to run as root. Terminating: ", err)
-		}
-		os.Exit(0)
-	}
 }
 
 func confirmWorkingDir() {
